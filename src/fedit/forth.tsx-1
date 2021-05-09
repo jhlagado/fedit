@@ -1,0 +1,336 @@
+export type Dict<T> = { [key: string]: T };
+export type PCode = F1 | number | string;
+export type F1 = (cod: any[], p: number) => number | void;
+export type F2 = (pcode: PCode[]) => void;
+export type Tuple = [string, string | number];
+
+export function defaultInput() {
+  return inputText.length === 0 ? 'bye' : inputText.shift();
+}
+
+export function defaultOutput(text: string) {
+  console.log(text);
+}
+
+let ginput = defaultInput;
+let goutput = defaultOutput;
+
+let initCode = '1 2 + . ';
+
+let inputText: string[] = ['', '', '', ''];
+
+const rDict: Dict<PCode | PCode[]> = {
+  '+': rAdd,
+  '-': rSub,
+  '/': rDiv,
+  '*': rMul,
+  over: rOver,
+  dup: rDup,
+  swap: rSwap,
+  '.': rDot,
+  dump: rDump,
+  drop: rDrop,
+  '=': rEq,
+  '>': rGt,
+  '<': rLt,
+  ',': rComma,
+  '@': rAt,
+  '!': rBang,
+  allot: rAllot,
+  create: rCreate,
+  'does>': rDoes,
+};
+
+let ds: number[] = [];
+let cStack: Tuple[] = [];
+let heap: number[] = new Array(20);
+let heapNext = 0;
+let words: string[] = [];
+let prompt: string = 'Forth> ';
+let lastCreate: string;
+
+let cDict: Dict<F2> = {
+  ':': cColon,
+  ';': cSemi,
+  if: cIf,
+  else: cElse,
+  then: cThen,
+  begin: cBegin,
+  until: cUntil,
+};
+
+export function setPrompt(text: string) {
+  prompt = text;
+}
+
+export function getPrompt() {
+  return prompt;
+}
+
+export function forth(input = defaultInput, output = defaultOutput) {
+  ginput = input;
+  goutput = output;
+
+  while (true) {
+    let pcode = compile();
+    if (pcode === null) {
+      console.log('');
+      return;
+    }
+    execute(pcode);
+  }
+}
+
+export function compile(): PCode[] | null {
+  let pcode: PCode[] = [];
+  setPrompt('Forth> ');
+  while (true) {
+    let word = getWord();
+    if (word === null) return null;
+
+    const cAct = cDict[word];
+    const rAct = rDict[word];
+
+    if (cAct) {
+      cAct(pcode);
+    } else if (rAct) {
+      if (Array.isArray(rAct)) {
+        pcode.push(rRun);
+        pcode.push(word);
+      } else {
+        pcode.push(rAct);
+      }
+    } else {
+      pcode.push(rPush);
+      try {
+        pcode.push(Number.parseInt(word));
+      } catch (e) {
+        pcode[pcode.length - 1] = rRun;
+        pcode.push(word);
+      }
+    }
+    if (cStack.length === 0) return pcode;
+    setPrompt('...    ');
+  }
+}
+
+export function execute(code: PCode[]) {
+  let p = 0;
+  while (p < code.length) {
+    const func = code[p] as Function;
+    p += 1;
+    const newP = func(code, p);
+    if (newP != null) p = newP as number;
+  }
+}
+
+export function getWord() {
+  while (words.length === 0) {
+    let line;
+    try {
+      if (initCode) {
+        line = initCode;
+        initCode = '';
+      } else {
+        line = ginput() + ' ';
+      }
+    } catch (e) {
+      return null;
+    }
+    tokenizeWords(line);
+  }
+  const word = words[0].trim();
+  if (word === 'bye' || word === '') return null;
+  words = words.slice(1);
+  return word;
+}
+
+export function tokenizeWords(s: string) {
+  const trimComments = (s + '\n').replaceAll(/\.*\n/g, '\n');
+  words = words.concat(trimComments.trim().split(/\s+/));
+}
+
+export const fbool = (b: boolean): number => (b ? -1 : 0);
+
+export function rAdd(pcode: PCode[], p: number): number | void {
+  const b = ds.pop();
+  const a = ds.pop();
+  ds.push(a + b);
+}
+
+export function rMul(cod: any[], p: number): number | void {
+  const b = ds.pop();
+  const a = ds.pop();
+  ds.push(a * b);
+}
+
+export function rSub(cod: any[], p: number): number | void {
+  const b = ds.pop();
+  const a = ds.pop();
+  ds.push(a - b);
+}
+
+export function rDiv(cod: any[], p: number): number | void {
+  const b = ds.pop();
+  const a = ds.pop();
+  ds.push(a / b);
+}
+
+export function rEq(cod: any[], p: number): number | void {
+  const b = ds.pop();
+  const a = ds.pop();
+  ds.push(fbool(a === b));
+}
+
+export function rGt(cod: any[], p: number): number | void {
+  const b = ds.pop();
+  const a = ds.pop();
+  ds.push(fbool(a > b));
+}
+
+export function rLt(cod: any[], p: number): number | void {
+  const b = ds.pop();
+  const a = ds.pop();
+  ds.push(fbool(a < b));
+}
+
+export function rSwap(cod: any[], p: number): number | void {
+  const a = ds.pop();
+  const b = ds.pop();
+  ds.push(a);
+  ds.push(b);
+}
+
+export function rDup(cod: any[], p: number): number | void {
+  ds.push(ds[ds.length - 1]);
+}
+
+export function rDrop(cod: any[], p: number): number | void {
+  ds.pop();
+}
+
+export function rOver(cod: any[], p: number): number | void {
+  ds.push(ds[-2]);
+}
+
+export function rDump(cod: any[], p: number): number | void {
+  console.log(`ds = ${ds}`);
+}
+
+export function rDot(cod: any[], p: number): number | void {
+  goutput(String(ds.pop()));
+}
+
+export function rJmp(cod: any[], p: number): number | void {
+  return cod[p];
+}
+
+export function rJnz(cod: any[], p: number): number | void {
+  ds.pop() !== 0 ? cod[p] : p;
+}
+
+export function rJz(cod: any[], p: number): number | void {
+  ds.pop() === 0 ? cod[p] : p;
+}
+
+export function rRun(cod: string[], p: number): number | void {
+  let pcode = rDict[cod[p]];
+  execute(Array.isArray(pcode) ? pcode : [pcode]);
+  return p + 1;
+}
+
+export function rPush(cod: any[], p: number): number | void {
+  ds.push(cod[p]);
+  return p + 1;
+}
+
+export function rCreate(code: any[], p: number): number | void {
+  const label = getWord();
+  lastCreate = label;
+  const x: PCode[] = [rPush, heapNext];
+  rDict[label] = [rPush, heapNext];
+}
+
+export function rDoes(cod: any[], p: number): number | void {
+  const pcode = rDict[lastCreate] as PCode[];
+  const rest = cod.slice(p) as PCode[];
+  for (const p of rest) {
+    pcode.push(p);
+  }
+  return cod.length;
+}
+
+export function rAllot(cod: any[], p: number): number | void {
+  heapNext += ds.pop();
+}
+
+export function rAt(cod: any[], p: number): number | void {
+  ds.push(heap[ds.pop()]);
+}
+
+export function rBang(cod: any[], p: number): number | void {
+  const a = ds.pop();
+  heap[a] = ds.pop();
+}
+
+export function rComma(cod: any[], p: number): number | void {
+  heap[heapNext] = ds.pop();
+  heapNext += 1;
+}
+
+export function fatal(mesg: string) {
+  throw new Error(mesg);
+}
+
+export function cColon(pcode: PCode[]) {
+  if (cStack) fatal(`: inside Control stack: ${cStack}`);
+  const label = getWord();
+  cStack.push(['COLON', label]);
+}
+
+export function cSemi(pcode: PCode[]) {
+  if (cStack.length === 0) fatal('No : for ; to match');
+  const [code, label] = cStack.pop();
+  if (code != 'COLON') fatal(': not balanced with ;');
+  rDict[label] = [...pcode];
+  while (pcode.length > 0) pcode.pop();
+}
+
+export function cBegin(pcode: PCode[]) {
+  cStack.push(['BEGIN', pcode.length]);
+}
+
+export function cUntil(pcode: PCode[]) {
+  if (cStack.length === 0) fatal('No BEGIN for UNTIL to match');
+  const [code, slot] = cStack.pop();
+  if (code !== 'BEGIN') fatal(`UNTIL preceded by ${code} (not BEGIN)`);
+  pcode.push(rJz);
+  pcode.push(slot as number);
+}
+
+export function cIf(pcode: PCode[]) {
+  pcode.push(rJz);
+  cStack.push(['IF', pcode.length]);
+  pcode.push(0);
+}
+
+export function cElse(pcode: PCode[]) {
+  if (cStack.length === 0) fatal('No IF for ELSE to match');
+  const [code, slot] = cStack.pop();
+  if (code !== 'IF') fatal(`ELSE preceded by ${code} (not IF)`);
+  pcode.push(rJmp);
+  cStack.push(['ELSE', pcode.length]);
+  pcode.push(0);
+  pcode[slot as number] = pcode.length;
+}
+
+export function cThen(pcode: PCode[]) {
+  if (cStack.length === 0) fatal('No IF or ELSE for THEN to match');
+  const [code, slot] = cStack.pop();
+  if (!(code in ['IF', 'ELSE'])) {
+    fatal(`THEN preceded by ${code} (not IF or ELSE)`);
+    pcode[slot as number] = pcode.length;
+  }
+}
+
+forth();
